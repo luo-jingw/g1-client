@@ -99,9 +99,15 @@ import time
 
 import numpy as np
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # repo root -> import g1_client
-sys.path.insert(0, os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "openpi"))  # -> eef_kinematics
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_ROOT = os.path.dirname(_HERE)
+sys.path.insert(0, _ROOT)                        # repo root -> import g1_client
+# APPEND (not insert) the openpi folder: it is only needed for eef_kinematics, and
+# it also holds a main_eef.py. Putting it ahead of this script's own directory
+# would shadow fastwam/main_eef.py below and silently send openpi's LeRobot-keyed
+# observation ("observation.images.*"/"observation.state") to serve.py, which
+# expects {"image", "state", "prompt"} and fails with KeyError: 'image'.
+sys.path.append(os.path.join(_ROOT, "openpi"))   # -> eef_kinematics
 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 
