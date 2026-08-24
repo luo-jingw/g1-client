@@ -396,6 +396,10 @@ def _run_inference_loop(arm, grip, cam, policy, kin, args) -> None:
             # 'r' pressed: drop feedforward, ramp back to the ready pose, and wait
             # for Enter before starting a fresh inference session from the top.
             log.info("[r] reset requested — returning to ready pose")
+            # Let go first, while the arm is still holding its pose under
+            # feedforward, so the object is dropped where it is instead of being
+            # carried back to the ready pose.
+            _release_grippers(grip, args)
             if args.tauff_scale > 0:
                 arm.set_arm_tauff(np.zeros(14))
             _initialize_pose(arm, grip, args)
@@ -410,6 +414,25 @@ def _run_inference_loop(arm, grip, cam, policy, kin, args) -> None:
 
 
 # ---------- pipeline stages (kept identical to fastwam/main.py) ----------
+
+def _release_grippers(grip, args) -> None:
+    """Open both grippers so a reset lets go of whatever is being held.
+
+    Runs BEFORE the arm ramps home, because _initialize_pose() below would
+    otherwise (a) drag a still-gripped object across the table on its way to the
+    ready pose and (b) clamp down harder — its gripper sequence closes to
+    GRIPPER_MIN first. Blocks for --reset-gripper-duration while the arm's publish
+    thread keeps holding the last commanded pose. Disable with
+    --no-reset-open-gripper.
+    """
+    if not args.reset_open_gripper:
+        return
+    left, right = grip.get_state()
+    log.info(f"Releasing: opening grippers L={left:.2f} R={right:.2f} -> "
+             f"{args.reset_gripper_open:.2f} over {args.reset_gripper_duration:.1f}s")
+    grip.move_to_targets(args.reset_gripper_open, args.reset_gripper_open,
+                         duration=args.reset_gripper_duration)
+
 
 def _initialize_pose(arm, grip, args) -> None:
     log.info(f"Moving arms to ready pose over {args.init_duration:.1f}s "
@@ -550,6 +573,15 @@ def main() -> None:
     p.add_argument("--settle-duration", type=float, default=1.0)
     p.add_argument("--init-gripper-left", type=float, default=5.0)
     p.add_argument("--init-gripper-right", type=float, default=5.0)
+    p.add_argument("--no-reset-open-gripper", action="store_false", dest="reset_open_gripper",
+                   help="Do NOT open the grippers when [r] is pressed. By default a reset "
+                        "releases first so a held object is dropped in place rather than "
+                        "dragged back to the ready pose.")
+    p.add_argument("--reset-gripper-open", type=float, default=GRIPPER_MAX,
+                   help=f"Gripper target used by the [r] release, rad (default "
+                        f"{GRIPPER_MAX} = fully open)")
+    p.add_argument("--reset-gripper-duration", type=float, default=0.5,
+                   help="Seconds to ramp the grippers open on a [r] reset (default 0.5)")
     p.add_argument("--auto-start", action="store_true",
                    help="Skip the post-init Enter prompt and start immediately.")
     args = p.parse_args()

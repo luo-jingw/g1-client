@@ -127,7 +127,7 @@ from main_eef import (
     LEFT_GRIPPER_CHANNEL, RIGHT_GRIPPER_CHANNEL, IK_WARN_M,
     build_obs, apply_raisez, log_chunk_ranges,
     _pct, _stat, _timing_rec, _KeyPoller,
-    _initialize_pose, _wait_for_operator, _cleanup,
+    _release_grippers, _initialize_pose, _wait_for_operator, _cleanup,
 )
 
 logging.basicConfig(level=logging.INFO,
@@ -434,6 +434,10 @@ def _run_masked_loop(arm, grip, cam, policy, kin, kin_ik, args) -> None:
             # 'r' pressed: drop feedforward, ramp back to the ready pose, and wait
             # for Enter before starting a fresh inference session from the top.
             log.info("[r] reset requested — returning to ready pose")
+            # Let go first, while the arm is still holding its pose under
+            # feedforward, so the object is dropped where it is instead of being
+            # carried back to the ready pose.
+            _release_grippers(grip, args)
             if args.tauff_scale > 0:
                 arm.set_arm_tauff(np.zeros(14))
             _initialize_pose(arm, grip, args)
@@ -538,6 +542,15 @@ def main() -> None:
     p.add_argument("--settle-duration", type=float, default=1.0)
     p.add_argument("--init-gripper-left", type=float, default=5.0)
     p.add_argument("--init-gripper-right", type=float, default=5.0)
+    p.add_argument("--no-reset-open-gripper", action="store_false", dest="reset_open_gripper",
+                   help="Do NOT open the grippers when [r] is pressed. By default a reset "
+                        "releases first so a held object is dropped in place rather than "
+                        "dragged back to the ready pose.")
+    p.add_argument("--reset-gripper-open", type=float, default=GRIPPER_MAX,
+                   help=f"Gripper target used by the [r] release, rad (default "
+                        f"{GRIPPER_MAX} = fully open)")
+    p.add_argument("--reset-gripper-duration", type=float, default=0.5,
+                   help="Seconds to ramp the grippers open on a [r] reset (default 0.5)")
     p.add_argument("--auto-start", action="store_true",
                    help="Skip the post-init Enter prompt and start immediately.")
     args = p.parse_args()
